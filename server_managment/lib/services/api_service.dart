@@ -5,7 +5,7 @@ import 'package:logger/logger.dart';
 
 class ApiService {
   final Dio _dio = Dio();
-  final String baseUrl = "http://192.168.0.22:5000";
+  final String baseUrl = "https://man-proud-kingfish.ngrok-free.app";
   final String apiKey = "APIKEY123";
   bool isInitialized = false;
   static Logger logger = Logger();

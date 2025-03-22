@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:server_managment/models/FilesIcons.dart';
+import 'package:server_managment/models/files_icons.dart';
 import 'dart:io';
 import 'package:server_managment/services/api_service.dart';
 import 'package:open_file/open_file.dart';
@@ -118,11 +118,15 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
     }
   }
 
+  void _dowFile(String path) {
+    if (!isFolder(path)){
+      _downloadFile(path);
+    }
+  }
+
   void _handleTap(String path) {
     if (isFolder(path)) {
       _loadFiles(folderPath: path);
-    } else {
-      _downloadFile(path);
     }
   }
 
@@ -193,6 +197,10 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
                         title: Text(displayName),
                         subtitle: Text(file),
                         onTap: () => _handleTap(file),
+                        trailing: !isFolder(file) ? IconButton(
+                          icon: const Icon(Icons.download),
+                          onPressed: () => _dowFile(file),
+                        ) : null,
                       );
                     },
                   );
