@@ -52,12 +52,12 @@ class Filesicons {
     "default": "assets/icons/file.png",
   };
 
-  static Widget getIconForExtension(String extension) {
+  static Widget getIconForExtension(String extension, double size) {
     final iconPath = exToIcon[extension.toLowerCase()] ?? 'assets/icons/file.png';
     return Image.asset(
       iconPath,
-      width: 24,
-      height: 24,
+      width: size,
+      height: size,
       fit: BoxFit.contain,
     );
   }

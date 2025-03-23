@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:server_managment/models/file_item.dart';
 
 class ApiService {
-  final Dio _dio = Dio();
+  final Dio dio = Dio();
   late final String baseUrl;
   late final String apiKey;
   bool isInitialized = false;
@@ -20,7 +21,7 @@ class ApiService {
       throw Exception("Environment variables are not set");
     }
 
-    _dio.options.headers["X-API-KEY"] = apiKey;
+    dio.options.headers["X-API-KEY"] = apiKey;
   }
 
   Future<void> init() async {
@@ -43,21 +44,22 @@ class ApiService {
     }
 
     if (deviceId != null) {
-      _dio.options.headers["X-Device-ID"] = deviceId;
+      dio.options.headers["X-Device-ID"] = deviceId;
       logger.i("Device ID set: $deviceId");
     } else {
       logger.e("Could not retrieve device ID");
     }
   }
 
-  Future<List<String>> getFiles({String folderPath = ""}) async {
+  Future<List<FileItem>> getFiles({String folderPath = ""}) async {
     await init();
     try {
-      final response = await _dio.get(
+      final response = await dio.get(
         "$baseUrl/list",
         queryParameters: {"folder": folderPath},
       );
-      return List<String>.from(response.data["files"]);
+      final filesJson = response.data["files"] as List<dynamic>;
+      return filesJson.map((json) => FileItem.fromJSON(json as Map<String, dynamic>)).toList();
     } catch (e) {
       logger.e("Błąd podczas pobierania plików: $e");
       return [];
@@ -71,7 +73,7 @@ class ApiService {
         "file": await MultipartFile.fromFile(file.path, filename: file.path.split("/").last),
         "folder": folder,
       });
-      final response = await _dio.post("$baseUrl/upload", data: formData);
+      final response = await dio.post("$baseUrl/upload", data: formData);
       logger.d(response.data["message"]);
       return response.data["message"];
     } catch (e) {
@@ -88,7 +90,7 @@ class ApiService {
         await directory.create(recursive: true);
       }
 
-      await _dio.download(
+      await dio.download(
         "$baseUrl/download/$filename",
         savePath,
         onReceiveProgress: (received, total) {
@@ -113,7 +115,7 @@ class ApiService {
   Future<String> getServerVariable() async {
     await init();
     try {
-      final response = await _dio.get("$baseUrl/get_variable");
+      final response = await dio.get("$baseUrl/get_variable");
       return response.data["server_variable"];
     } catch (e) {
       logger.e("Błąd pobierania zmiennej: $e");
@@ -124,7 +126,7 @@ class ApiService {
   Future<String> updateServerVariable(String newValue) async {
     await init();
     try {
-      final response = await _dio.post(
+      final response = await dio.post(
         "$baseUrl/update_variable",
         data: {"new_value": newValue},
       );
@@ -138,7 +140,7 @@ class ApiService {
   Future<String> getLogs() async {
     await init();
     try {
-      final response = await _dio.get("$baseUrl/get_logs");
+      final response = await dio.get("$baseUrl/get_logs");
       return response.data["logs"];
     } catch (e) {
       logger.e("Błąd pobierania logów: $e");

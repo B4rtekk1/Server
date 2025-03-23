@@ -13,7 +13,7 @@ load_dotenv()
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 API_KEY = os.getenv("API_KEY")
-KNOWN_DEVICE_IDS = str(os.getenv("KNOWN_DEVICE_IDS")).split(",")
+KNOWN_DEVICE_IDS = os.getenv("KNOWN_DEVICE_IDS").split(",")
 EMAIL_SENDER = "bartoszkasyna@gmail.com"
 EMAIL_PASSWORD = "#############"
 EMAIL_RECEIVER = "bartoszkasyna@gmail.com"
@@ -85,7 +85,10 @@ def check_api_key_and_device():
         log_to_memory_and_file("WARNING", f"No device ID provided from IP {client_ip}")
         return jsonify({"error": "Device ID required"}), 400
     
-    if device_id not in KNOWN_DEVICE_IDS:
+    device_id_cleaned = device_id.strip().replace("{", "").replace("}", "")
+    known_ids_cleaned = [id.strip().replace("{", "").replace("}", "") for id in KNOWN_DEVICE_IDS]
+    
+    if device_id_cleaned not in known_ids_cleaned:
         send_alert(device_id, client_ip)
         log_to_memory_and_file("WARNING", f"Unknown device ID: {device_id} from IP {client_ip}")
         return jsonify({"warning": f"Device {device_id} unknown"}), 403
@@ -108,16 +111,20 @@ def list_files():
     for root, dirs, files_in_dir in os.walk(target_folder):
         for dir_name in dirs:
             relative_path = os.path.relpath(os.path.join(root, dir_name), base_upload_folder)
-            items.append(relative_path + "/")
+            full_path = os.path.join(root, dir_name)
+            mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
+            items.append({"path": relative_path + "/", "type": "directory", "modified": mod_time})
         for file in files_in_dir:
             relative_path = os.path.relpath(os.path.join(root, file), base_upload_folder)
-            items.append(relative_path)
+            full_path = os.path.join(root, file)
+            mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
+            items.append({"path": relative_path, "type": "file", "modified": mod_time})
         break
+        
     
     log_to_memory_and_file("INFO", "User listed files")
     return jsonify({"files": items})
 
-@app.route("/upload", methods=["POST"])
 @app.route("/upload", methods=["POST"])
 def upload_file():
     auth_error = check_api_key_and_device()
@@ -131,7 +138,6 @@ def upload_file():
         log_to_memory_and_file("WARNING", f"Invalid folder path attempted: {requested_folder}")
         return jsonify({"error": "Invalid folder path"}), 400
     os.makedirs(full_path, exist_ok=True)
-    # Używamy tylko nazwy pliku, bez ścieżki
     filename = os.path.basename(file.filename)
     file_path = os.path.join(full_path, filename)
     file.save(file_path)
