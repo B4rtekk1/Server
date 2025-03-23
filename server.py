@@ -6,11 +6,14 @@ import shutil
 import signal
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
-API_KEY = "APIKEY123"
-KNOWN_DEVICE_IDS = ["{123456789qwerty}", "yufgcuyg8"]
+API_KEY = os.getenv("API_KEY")
+KNOWN_DEVICE_IDS = str(os.getenv("KNOWN_DEVICE_IDS")).split(",")
 EMAIL_SENDER = "bartoszkasyna@gmail.com"
 EMAIL_PASSWORD = "#############"
 EMAIL_RECEIVER = "bartoszkasyna@gmail.com"
@@ -74,8 +77,8 @@ def check_api_key_and_device():
     device_id = request.headers.get("X-Device-ID")
     client_ip = request.remote_addr
     
-    if api_key != API_KEY:
-        log_to_memory_and_file("WARNING", f"Unauthorized access attempt from IP {client_ip}")
+    if api_key.strip() != API_KEY.strip():
+        log_to_memory_and_file("WARNING", f"Unauthorized access attempt from IP {client_ip}, {api_key}, {API_KEY}")
         return jsonify({"error": "Unauthorized"}), 401
     
     if not device_id:

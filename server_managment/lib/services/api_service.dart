@@ -2,15 +2,24 @@ import 'package:dio/dio.dart';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:logger/logger.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiService {
   final Dio _dio = Dio();
-  final String baseUrl = "https://man-proud-kingfish.ngrok-free.app";
-  final String apiKey = "APIKEY123";
+  late final String baseUrl;
+  late final String apiKey;
   bool isInitialized = false;
   static Logger logger = Logger();
 
   ApiService() {
+    baseUrl = dotenv.env["BASE_URL"] ?? '';
+    apiKey = dotenv.env["API_KEY"] ?? '';
+
+    if(baseUrl.isEmpty || apiKey.isEmpty) {
+      logger.e("Environment variables are not set");
+      throw Exception("Environment variables are not set");
+    }
+
     _dio.options.headers["X-API-KEY"] = apiKey;
   }
 
