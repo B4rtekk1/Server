@@ -25,6 +25,8 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
   String currentFolder = "";
   final Logger logger = Logger();
   int rowCount = 2;
+  bool isLoading = false;
+  Map<String, double> downloadProgress = {};
 
   @override
   void initState() {
@@ -39,17 +41,30 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
     setState(() {
       rowCount = count;
     });
-    _loadFiles();
+    await _loadFiles();
   }
 
   bool isFolder(String path) => path.endsWith('/');
 
-  void _loadFiles({String folderPath = ""}) async {
-    final fileList = await widget.apiService.getFiles(folderPath: folderPath);
+  Future<void> _loadFiles({String folderPath = ""}) async {
+    if (isLoading) return;
     setState(() {
-      files = fileList;
-      currentFolder = folderPath;
+      isLoading = true;
     });
+    try {
+      final fileList = await widget.apiService.getFiles(folderPath: folderPath);
+      if (!mounted) return;
+      setState(() {
+        files = fileList;
+        currentFolder = folderPath;
+      });
+    } finally {
+      // ignore: control_flow_in_finally
+      if (!mounted) return;
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   void _uploadFile() async {
@@ -59,7 +74,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
       final message = await widget.apiService.uploadFile(file, currentFolder);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-      _loadFiles(folderPath: currentFolder);
+      await _loadFiles(folderPath: currentFolder);
     }
   }
 
@@ -89,6 +104,10 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
   }
 
   void _downloadFile(String filename) async {
+    setState(() {
+      downloadProgress[filename] = 0.0;
+    });
+
     try {
       String savePath = await _getDownloadPath(filename);
       logger.i("Próba pobrania pliku: $filename do $savePath");
@@ -97,7 +116,17 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
         await directory.create(recursive: true);
       }
 
-      await widget.apiService.downloadFile(filename, savePath);
+      await widget.apiService.downloadFile(
+        filename,
+        savePath,
+        onProgress: (received, total) {
+          if (total != -1) {
+            setState(() {
+              downloadProgress[filename] = received / total;
+            });
+          }
+        },
+      );
 
       File downloadedFile = File(savePath);
       if (await downloadedFile.exists() && await downloadedFile.length() > 0) {
@@ -123,6 +152,12 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Błąd pobierania: $e")),
       );
+    } finally {
+      // ignore: control_flow_in_finally
+      if (!mounted) return;
+      setState(() {
+        downloadProgress.remove(filename);
+      });
     }
   }
 
@@ -135,8 +170,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
   void _handleTap(String path) {
     if (isFolder(path)) {
       _loadFiles(folderPath: path);
-    }
-    else {
+    } else {
       _dowFile(path);
     }
   }
@@ -212,86 +246,90 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
               ),
             ),
             Expanded(
-              child: FutureBuilder<List<FileItem>>(
-                future: widget.apiService.getFiles(folderPath: currentFolder),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return const Center(child: Text('Błąd połączenia'));
-                  }
-                  final files = snapshot.data ?? [];
-                  return GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: rowCount,
-                      crossAxisSpacing: 10.0,
-                      mainAxisSpacing: 10.0,
-                      childAspectRatio: 1.0,
-                    ),
-                    itemCount: files.length,
-                    itemBuilder: (context, index) {
-                      final file = files[index];
-                      String displayName = file.path.endsWith('/')
-                          ? file.path.substring(0, file.path.length - 1).split('/').last
-                          : file.path.split('/').last;
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : GridView.builder(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: rowCount,
+                        crossAxisSpacing: 10.0,
+                        mainAxisSpacing: 10.0,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: files.length,
+                      itemBuilder: (context, index) {
+                        final file = files[index];
+                        String displayName = file.path.endsWith('/')
+                            ? file.path.substring(0, file.path.length - 1).split('/').last
+                            : file.path.split('/').last;
 
-                      return GestureDetector(
-                        onTap: () => _handleTap(file.path),
-                        child: Padding(
-                          padding: const EdgeInsets.all(2.0),
-                          child: Card(
-                            elevation: 2,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 4.0, left: 4.0, top: 4.0),
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: _getIcon(file.path),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(top: 4.0),
-                                        child: Text(
-                                          displayName,
-                                          textAlign: TextAlign.left,
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
+                        return GestureDetector(
+                          onTap: () => _handleTap(file.path),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2.0),
+                            child: Card(
+                              elevation: 2,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 4.0, left: 4.0, top: 4.0),
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: _getIcon(file.path),
                                         ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8.0),
-                                      child: _getIcon(file.path, true, true),
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(top: 4.0),
+                                          child: Text(
+                                            displayName,
+                                            textAlign: TextAlign.left,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8.0),
+                                        child: _getIcon(file.path, true, true),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                /*if (!isFolder(file.path))
-                                  IconButton(
-                                    icon: const Icon(Icons.download, size: 20),
-                                    onPressed: () => _dowFile(file.path),
-                                  ),*/
-                              ],
+                                  if (downloadProgress.containsKey(file.path))
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                      child: Column(
+                                        children: [
+                                          LinearProgressIndicator(
+                                            value: downloadProgress[file.path],
+                                            minHeight: 4,
+                                            backgroundColor: Colors.grey[300],
+                                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '${(downloadProgress[file.path]! * 100).toStringAsFixed(1)}%',
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -303,7 +341,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
             tooltip: 'Upload file',
             foregroundColor: Colors.black,
             backgroundColor: Colors.white,
-            shape: CircleBorder(),
+            shape: const CircleBorder(),
             child: const Icon(Icons.add),
           ),
         ),

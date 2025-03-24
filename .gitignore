@@ -1,3 +1,4 @@
 uploads/
 ServerLogs/
 .env
+sent_alerts.json

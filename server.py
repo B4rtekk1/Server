@@ -5,7 +5,8 @@ from email.mime.text import MIMEText
 import shutil
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,11 +16,13 @@ UPLOAD_FOLDER = "uploads"
 API_KEY = os.getenv("API_KEY")
 KNOWN_DEVICE_IDS = os.getenv("KNOWN_DEVICE_IDS").split(",")
 EMAIL_SENDER = "bartoszkasyna@gmail.com"
-EMAIL_PASSWORD = "#############"
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = "bartoszkasyna@gmail.com"
 LOG_FILE = "ServerLogs/server_logs.txt"
+SENT_ALERTS_FILE = "sent_alerts.json"
 
 log_messages = []
+sent_alerts = {}  # Słownik: device_id -> czas ostatniego alertu
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +35,7 @@ logger.addHandler(file_handler)
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(formatter) 
+console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 def load_logs_from_file():
@@ -43,6 +46,19 @@ def load_logs_from_file():
         logger.info(f"Loaded {len(log_messages)} log entries from {LOG_FILE}")
     else:
         logger.info(f"No log file found at {LOG_FILE}, starting with empty log list")
+
+def load_sent_alerts():
+    global sent_alerts
+    if os.path.exists(SENT_ALERTS_FILE):
+        with open(SENT_ALERTS_FILE, "r") as f:
+            loaded = json.load(f)
+            sent_alerts = {k: datetime.fromisoformat(v) for k, v in loaded.items()}
+    else:
+        sent_alerts = {}
+
+def save_sent_alerts():
+    with open(SENT_ALERTS_FILE, "w") as f:
+        json.dump({k: v.isoformat() for k, v in sent_alerts.items()}, f)
 
 def log_to_memory_and_file(level, message):
     global log_messages
@@ -57,6 +73,19 @@ def log_to_memory_and_file(level, message):
         logger.error(message)
 
 def send_alert(device_id, ip):
+    device_id_cleaned = device_id.strip().replace("{", "").replace("}", "")
+    current_time = datetime.now()
+    
+    # Sprawdź, czy alert był już wysłany i czy minęła godzina
+    last_alert_time = sent_alerts.get(device_id_cleaned)
+    if last_alert_time and (current_time - last_alert_time) < timedelta(hours=1):
+        log_to_memory_and_file("INFO", f"Alert for device ID {device_id_cleaned} skipped (less than 1 hour since last alert)")
+        return
+
+    # Aktualizuj czas przed wysyłką, aby uniknąć wielokrotnego wywołania
+    sent_alerts[device_id_cleaned] = current_time
+    save_sent_alerts()
+
     subject = "New device detected"
     body = f"Someone tried to access your files with device ID: {device_id} from IP: {ip}"
     msg = MIMEText(body)
@@ -68,8 +97,12 @@ def send_alert(device_id, ip):
             server.starttls()
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
+        log_to_memory_and_file("INFO", f"Alert sent for unknown device ID: {device_id_cleaned} from IP {ip}")
     except Exception as e:
-        log_to_memory_and_file("ERROR", f"An error occurred {e}")
+        log_to_memory_and_file("ERROR", f"An error occurred while sending alert: {e}")
+        # Jeśli wysyłka się nie uda, usuń czas, aby spróbować ponownie przy następnym żądaniu
+        sent_alerts.pop(device_id_cleaned, None)
+        save_sent_alerts()
         print(f"An error occurred {e}")
 
 def check_api_key_and_device():
@@ -120,7 +153,6 @@ def list_files():
             mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
             items.append({"path": relative_path, "type": "file", "modified": mod_time})
         break
-        
     
     log_to_memory_and_file("INFO", "User listed files")
     return jsonify({"files": items})
@@ -241,6 +273,7 @@ def shutdown_handler(signum, frame):
 
 if __name__ == "__main__":
     load_logs_from_file()
+    load_sent_alerts()
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)

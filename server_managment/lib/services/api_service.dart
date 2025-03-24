@@ -82,7 +82,7 @@ class ApiService {
     }
   }
 
-  Future<void> downloadFile(String filename, String savePath) async {
+  Future<void> downloadFile(String filename, String savePath, {Function(int received, int total)? onProgress}) async {
     await init();
     try {
       final directory = Directory(savePath).parent;
@@ -93,11 +93,7 @@ class ApiService {
       await dio.download(
         "$baseUrl/download/$filename",
         savePath,
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            logger.i("Postęp pobierania: ${(received / total * 100).toStringAsFixed(0)}%");
-          }
-        },
+        onReceiveProgress: onProgress,
       );
 
       final file = File(savePath);
