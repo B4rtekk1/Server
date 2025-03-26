@@ -9,7 +9,6 @@ import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
 import 'package:server_managment/models/file_item.dart';
-import 'package:server_managment/models/items_in_row.dart';
 
 class FilesExplorerPage extends StatefulWidget {
   final ApiService apiService;
@@ -24,7 +23,6 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
   List<FileItem> files = [];
   String currentFolder = "";
   final Logger logger = Logger();
-  int rowCount = 2;
   bool isLoading = false;
   Map<String, double> downloadProgress = {};
 
@@ -36,11 +34,6 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
 
   Future<void> _initializeAndLoadFiles() async {
     await widget.apiService.init();
-    final itemsInRow = ItemsInRow();
-    final count = itemsInRow.getItemsInRow();
-    setState(() {
-      rowCount = count;
-    });
     await _loadFiles();
   }
 
@@ -48,9 +41,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
 
   Future<void> _loadFiles({String folderPath = ""}) async {
     if (isLoading) return;
-    setState(() {
-      isLoading = true;
-    });
+    setState(() => isLoading = true);
     try {
       final fileList = await widget.apiService.getFiles(folderPath: folderPath);
       if (!mounted) return;
@@ -59,11 +50,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
         currentFolder = folderPath;
       });
     } finally {
-      // ignore: control_flow_in_finally
-      if (!mounted) return;
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -91,39 +78,30 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
       }
     } else if (Platform.isWindows) {
       String? userDir = Platform.environment['USERPROFILE'];
-      if (userDir == null) {
-        throw Exception("Nie można znaleźć folderu użytkownika");
-      }
+      if (userDir == null) throw Exception("Nie można znaleźć folderu użytkownika");
       downloadPath = "$userDir\\Downloads\\$sanitizedFilename";
     } else {
       Directory dir = await getApplicationDocumentsDirectory();
       downloadPath = "${dir.path}/$sanitizedFilename";
     }
-
     return downloadPath;
   }
 
   void _downloadFile(String filename) async {
-    setState(() {
-      downloadProgress[filename] = 0.0;
-    });
+    setState(() => downloadProgress[filename] = 0.0);
 
     try {
       String savePath = await _getDownloadPath(filename);
       logger.i("Próba pobrania pliku: $filename do $savePath");
       final directory = Directory(savePath).parent;
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
+      if (!await directory.exists()) await directory.create(recursive: true);
 
       await widget.apiService.downloadFile(
         filename,
         savePath,
         onProgress: (received, total) {
-          if (total != -1) {
-            setState(() {
-              downloadProgress[filename] = received / total;
-            });
+          if (total != -1 && mounted) {
+            setState(() => downloadProgress[filename] = received / total);
           }
         },
       );
@@ -135,36 +113,29 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
           SnackBar(content: Text("Pobrano: ${filename.split('/').last}")),
         );
         final result = await OpenFile.open(savePath);
-        if (result.type != ResultType.done) {
-          if (!mounted) return;
+        if (result.type != ResultType.done && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Nie można otworzyć pliku: ${result.message}")),
           );
         }
-      } else {
-        if (!mounted) return;
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Plik ${filename.split('/').last} nie został pobrany lub jest pusty")),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Błąd pobierania: $e")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Błąd pobierania: $e")),
+        );
+      }
     } finally {
-      // ignore: control_flow_in_finally
-      if (!mounted) return;
-      setState(() {
-        downloadProgress.remove(filename);
-      });
+      if (mounted) setState(() => downloadProgress.remove(filename));
     }
   }
 
   void _dowFile(String path) {
-    if (!isFolder(path)) {
-      _downloadFile(path);
-    }
+    if (!isFolder(path)) _downloadFile(path);
   }
 
   void _handleTap(String path) {
@@ -177,34 +148,28 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
 
   Widget _getIcon(String path, [bool isImage = false, bool fullSize = false]) {
     final double size = fullSize ? 64 : 24;
-    if (isFolder(path)) {
-      return Filesicons.getIconForExtension("folder", size);
-    }
+    if (isFolder(path)) return Filesicons.getIconForExtension("folder", size);
+
     final extension = path.split('.').last.toLowerCase();
-    if (isImage) {
-      if (extension == "jpg" || extension == "jpeg" || extension == "png" || extension == "gif") {
-        final baseUrl = dotenv.env['BASE_URL'] ?? '';
-        final imageUrl = "$baseUrl/download/$path";
-        return Image.network(
-          imageUrl,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          headers: {
-            "X-Api-Key": widget.apiService.apiKey,
-            "X-Device-Id": widget.apiService.dio.options.headers["X-Device-Id"] as String? ?? "",
-          },
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) {
-              return child;
-            }
-            return const Center(child: CircularProgressIndicator());
-          },
-          errorBuilder: (context, error, stackTrace) {
-            logger.e("Błąd ładowania obrazu: $error");
-            return Filesicons.getIconForExtension(extension, size);
-          },
-        );
-      }
+    if (isImage && ["jpg", "jpeg", "png", "gif"].contains(extension)) {
+      final baseUrl = dotenv.env['BASE_URL'] ?? '';
+      final imageUrl = "$baseUrl/download/$path";
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        headers: {
+          "X-Api-Key": widget.apiService.apiKey,
+          "X-Device-Id": widget.apiService.dio.options.headers["X-Device-Id"] as String? ?? "",
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          return loadingProgress == null ? child : const Center(child: CircularProgressIndicator());
+        },
+        errorBuilder: (context, error, stackTrace) {
+          logger.e("Błąd ładowania obrazu: $error");
+          return Filesicons.getIconForExtension(extension, size);
+        },
+      );
     }
     return Filesicons.getIconForExtension(extension, size);
   }
@@ -224,14 +189,7 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
                       icon: const Icon(Icons.arrow_back),
                       onPressed: () {
                         final parentFolder = currentFolder.endsWith('/')
-                            ? currentFolder
-                                .substring(0, currentFolder.length - 1)
-                                .split('/')
-                                .reversed
-                                .skip(1)
-                                .toList()
-                                .reversed
-                                .join('/')
+                            ? currentFolder.substring(0, currentFolder.length - 1).split('/').reversed.skip(1).toList().reversed.join('/')
                             : currentFolder.split('/').reversed.skip(1).toList().reversed.join('/');
                         _loadFiles(folderPath: parentFolder);
                       },
@@ -248,85 +206,90 @@ class FilesExplorerPageState extends State<FilesExplorerPage> {
             Expanded(
               child: isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : GridView.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: rowCount,
-                        crossAxisSpacing: 10.0,
-                        mainAxisSpacing: 10.0,
-                        childAspectRatio: 1.0,
-                      ),
-                      itemCount: files.length,
-                      itemBuilder: (context, index) {
-                        final file = files[index];
-                        String displayName = file.path.endsWith('/')
-                            ? file.path.substring(0, file.path.length - 1).split('/').last
-                            : file.path.split('/').last;
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        return GridView.builder(
+                          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 250,
+                            crossAxisSpacing: 10.0,
+                            mainAxisSpacing: 10.0,
+                            childAspectRatio: 1.0,
+                          ),
+                          itemCount: files.length,
+                          itemBuilder: (context, index) {
+                            final file = files[index];
+                            String normalizedPath = file.path.replaceAll('\\', '/');
+                            String displayName = normalizedPath.endsWith('/')
+                                ? normalizedPath.substring(0, normalizedPath.length - 1).split('/').last
+                                : normalizedPath.split("/").last;
 
-                        return GestureDetector(
-                          onTap: () => _handleTap(file.path),
-                          child: Padding(
-                            padding: const EdgeInsets.all(2.0),
-                            child: Card(
-                              elevation: 2,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Row(
+                            return GestureDetector(
+                              onTap: () => _handleTap(file.path),
+                              child: Padding(
+                                padding: const EdgeInsets.all(2.0),
+                                child: Card(
+                                  elevation: 2,
+                                  child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Padding(
-                                        padding: const EdgeInsets.only(right: 4.0, left: 4.0, top: 4.0),
-                                        child: SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: _getIcon(file.path),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Padding(
-                                          padding: const EdgeInsets.only(top: 4.0),
-                                          child: Text(
-                                            displayName,
-                                            textAlign: TextAlign.left,
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(8.0),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8.0),
-                                        child: _getIcon(file.path, true, true),
-                                      ),
-                                    ),
-                                  ),
-                                  if (downloadProgress.containsKey(file.path))
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                      child: Column(
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          LinearProgressIndicator(
-                                            value: downloadProgress[file.path],
-                                            minHeight: 4,
-                                            backgroundColor: Colors.grey[300],
-                                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 4.0, left: 4.0, top: 4.0),
+                                            child: SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: _getIcon(file.path),
+                                            ),
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '${(downloadProgress[file.path]! * 100).toStringAsFixed(1)}%',
-                                            style: const TextStyle(fontSize: 12),
+                                          Expanded(
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(top: 4.0),
+                                              child: Text(
+                                                displayName,
+                                                textAlign: TextAlign.left,
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ),
-                                    ),
-                                ],
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(8.0),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(8.0),
+                                            child: _getIcon(file.path, true, true),
+                                          ),
+                                        ),
+                                      ),
+                                      if (downloadProgress.containsKey(file.path))
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                          child: Column(
+                                            children: [
+                                              LinearProgressIndicator(
+                                                value: downloadProgress[file.path],
+                                                minHeight: 4,
+                                                backgroundColor: Colors.grey[300],
+                                                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                '${(downloadProgress[file.path]! * 100).toStringAsFixed(1)}%',
+                                                style: const TextStyle(fontSize: 12),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         );
                       },
                     ),
