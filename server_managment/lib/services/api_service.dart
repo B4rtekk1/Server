@@ -16,7 +16,7 @@ class ApiService {
     baseUrl = dotenv.env["BASE_URL"] ?? '';
     apiKey = dotenv.env["API_KEY"] ?? '';
 
-    if(baseUrl.isEmpty || apiKey.isEmpty) {
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
       logger.e("Environment variables are not set");
       throw Exception("Environment variables are not set");
     }
@@ -35,10 +35,10 @@ class ApiService {
     DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
     String? deviceId;
 
-    if(Platform.isAndroid) {
+    if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
       deviceId = androidInfo.id;
-    } else if(Platform.isWindows) {
+    } else if (Platform.isWindows) {
       WindowsDeviceInfo windowsInfo = await deviceInfo.windowsInfo;
       deviceId = windowsInfo.deviceId;
     }
@@ -66,14 +66,22 @@ class ApiService {
     }
   }
 
-  Future<String> uploadFile(File file, String folder) async {
+  Future<String> uploadFile(
+    File file,
+    String folder, {
+    Function(int sent, int total)? onSendProgress,
+  }) async {
     await init();
     try {
       FormData formData = FormData.fromMap({
         "file": await MultipartFile.fromFile(file.path, filename: file.path.split("/").last),
         "folder": folder,
       });
-      final response = await dio.post("$baseUrl/upload", data: formData);
+      final response = await dio.post(
+        "$baseUrl/upload",
+        data: formData,
+        onSendProgress: onSendProgress,
+      );
       logger.d(response.data["message"]);
       return response.data["message"];
     } catch (e) {
@@ -140,6 +148,21 @@ class ApiService {
       return response.data["logs"];
     } catch (e) {
       logger.e("Błąd pobierania logów: $e");
+      return "Błąd: $e";
+    }
+  }
+  
+  Future<String> deleteFile(String filename) async {
+    await init();
+    try {
+      final response = await dio.delete(
+        "$baseUrl/delete/$filename",
+        data: {"filename": filename},
+      );
+      getFiles();
+      return response.data["message"];
+    } catch (e) {
+      logger.e("Błąd podczas usuwania pliku: $e");
       return "Błąd: $e";
     }
   }
