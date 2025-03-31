@@ -268,18 +268,35 @@ def list_files():
         log_to_memory_and_file("WARNING", f"Invalid folder path attempted: {folder_path}")
         return jsonify({"error": "Invalid folder path"}), 400
     
+    if not os.path.exists(target_folder):
+        log_to_memory_and_file("WARNING", f"Target folder not found: {target_folder}")
+        return jsonify({"error": "Folder not found"}), 404
+    
     items = []
     for root, dirs, files_in_dir in os.walk(target_folder):
         for dir_name in dirs:
-            relative_path = os.path.relpath(os.path.join(root, dir_name), base_upload_folder)
             full_path = os.path.join(root, dir_name)
-            mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
-            items.append({"path": relative_path + "/", "type": "directory", "modified": mod_time})
+            if os.path.exists(full_path):
+                try:
+                    relative_path = os.path.relpath(full_path, base_upload_folder)
+                    mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
+                    items.append({"path": relative_path + "/", "type": "directory", "modified": mod_time})
+                except Exception as e:
+                    log_to_memory_and_file("ERROR", f"Error processing directory {full_path}: {e}")
+            else:
+                log_to_memory_and_file("WARNING", f"Directory {full_path} not found, skipping")
+        
         for file in files_in_dir:
-            relative_path = os.path.relpath(os.path.join(root, file), base_upload_folder)
             full_path = os.path.join(root, file)
-            mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
-            items.append({"path": relative_path, "type": "file", "modified": mod_time})
+            if os.path.exists(full_path):
+                try:
+                    relative_path = os.path.relpath(full_path, base_upload_folder)
+                    mod_time = datetime.fromtimestamp(os.path.getmtime(full_path)).strftime('%Y-%m-%d %H:%M')
+                    items.append({"path": relative_path, "type": "file", "modified": mod_time})
+                except Exception as e:
+                    log_to_memory_and_file("ERROR", f"Error processing file {full_path}: {e}")
+            else:
+                log_to_memory_and_file("WARNING", f"File {full_path} not found, skipping")
         break
     
     log_to_memory_and_file("INFO", "User listed files")
