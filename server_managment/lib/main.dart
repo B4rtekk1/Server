@@ -5,35 +5,109 @@ import 'package:server_managment/pages/settings_page.dart';
 import 'package:server_managment/models/destination.dart';
 import 'package:server_managment/services/api_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:server_managment/pages/login_page.dart';
+import 'package:server_managment/pages/register_page.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // Ensure Flutter is initialized
+  WidgetsFlutterBinding.ensureInitialized();
   try {
-    await dotenv.load(fileName: ".env"); // Load environment variables
+    await dotenv.load(fileName: ".env");
   } catch (e) {
-    throw Exception('Error loading .env file: $e'); // Print error if any
+    throw Exception('Error loading .env file: $e');
   }
-  
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  MyAppState createState() => MyAppState();
+}
+
+class MyAppState extends State<MyApp> {
+  final ApiService _apiService = ApiService();
+  bool _isLoggedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token != null) {
+      await _apiService.init();
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = true;
+        });
+      }
+    }
+  }
+
+  void _onLoginSuccess() {
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = true;
+      });
+    }
+  }
+
+  Future<void> _onLogout() async {
+    await _apiService.logout();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
-      home: const MyHomePage(title: "File Manager"),
+      home: _isLoggedIn
+          ? MyHomePage(
+              title: "File Manager",
+              apiService: _apiService,
+              onLogout: _onLogout,
+            )
+          : LoginPage(apiService: _apiService, onLoginSuccess: _onLoginSuccess),
+      routes: {
+        '/login': (context) => LoginPage(
+              apiService: _apiService,
+              onLoginSuccess: _onLoginSuccess,
+            ),
+        '/register': (context) => RegisterPage(
+              apiService: _apiService,
+              onRegisterSuccess: () => Navigator.pushNamed(context, '/login'),
+            ),
+        '/home': (context) => MyHomePage(
+              title: "File Manager",
+              apiService: _apiService,
+              onLogout: _onLogout,
+            ),
+      },
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
   final String title;
+  final ApiService apiService;
+  final VoidCallback onLogout;
+
+  const MyHomePage({
+    super.key,
+    required this.title,
+    required this.apiService,
+    required this.onLogout,
+  });
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -41,12 +115,13 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _selectedIndex = 0;
-  final ApiService _apiService = ApiService();
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    if (mounted) {
+      setState(() {
+        _selectedIndex = index;
+      });
+    }
   }
 
   @override
@@ -57,13 +132,19 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         backgroundColor: appBarColor,
         title: Text(widget.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: widget.onLogout,
+          ),
+        ],
       ),
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          HomePage(apiService: _apiService),
-          FilesExplorerPage(apiService: _apiService),
-          SettingsPage(apiService: _apiService),
+          HomePage(apiService: widget.apiService),
+          FilesExplorerPage(apiService: widget.apiService),
+          SettingsPage(apiService: widget.apiService),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(

@@ -4,6 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:logger/logger.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:server_managment/models/file_item.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   final Dio dio = Dio();
@@ -27,6 +28,7 @@ class ApiService {
   Future<void> init() async {
     if (!isInitialized) {
       await _addDeviceIdHeader();
+      await _addTokenHeader();
       isInitialized = true;
     }
   }
@@ -51,6 +53,85 @@ class ApiService {
     }
   }
 
+  Future<void> _addTokenHeader() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token != null) {
+      dio.options.headers["Authorization"] = "Bearer $token";
+      logger.i("Token set in headers");
+    }
+  }
+
+  Future<bool> login(String identifier, String password) async {
+    try {
+      final response = await dio.post(
+        "$baseUrl/login",
+        data: {"identifier": identifier, "password": password},
+        options: Options(headers: {"Content-Type": "application/json"}),
+      );
+      if (response.statusCode == 200) {
+        final token = response.data["token"];
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', token);
+        dio.options.headers["Authorization"] = "Bearer $token";
+        logger.i("Login successful, token saved");
+        return true;
+      }
+      return false;
+    } catch (e) {
+      logger.e("Login failed: $e");
+      return false;
+    }
+  }
+
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+    dio.options.headers.remove("Authorization");
+    isInitialized = false;
+    logger.i("Logged out");
+  }
+
+  Future<bool> register(String username, String password, String email) async {
+    try {
+      final response = await dio.post(
+        "$baseUrl/register",
+        data: {"username": username, "password": password, "email": email},
+        options: Options(headers: {"Content-Type": "application/json"}),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        logger.i("Registration successful for $username");
+        return true;
+      }
+      return false;
+    } catch (e) {
+      logger.e("Registration failed: $e");
+      return false;
+    }
+  }
+
+  Future<bool> verifyEmailCode(String email, String code) async {
+    try {
+      final response = await dio.post(
+        "$baseUrl/verify-email",
+        data: {"email": email, "code": code},
+        options: Options(headers: {"Content-Type": "application/json"}),
+      );
+      if (response.statusCode == 200) {
+        logger.i("Email $email verified successfully");
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      logger.e(
+        "Email verification failed: ${e.response?.data['error'] ?? e.message}",
+      );
+      throw Exception(
+        "Verification failed: ${e.response?.data['error'] ?? e.message}",
+      );
+    }
+  }
+
   Future<List<FileItem>> getFiles({String folderPath = ""}) async {
     await init();
     try {
@@ -59,7 +140,9 @@ class ApiService {
         queryParameters: {"folder": folderPath},
       );
       final filesJson = response.data["files"] as List<dynamic>;
-      return filesJson.map((json) => FileItem.fromJSON(json as Map<String, dynamic>)).toList();
+      return filesJson
+          .map((json) => FileItem.fromJSON(json as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       logger.e("Błąd podczas pobierania plików: $e");
       return [];
@@ -74,7 +157,10 @@ class ApiService {
     await init();
     try {
       FormData formData = FormData.fromMap({
-        "file": await MultipartFile.fromFile(file.path, filename: file.path.split("/").last),
+        "file": await MultipartFile.fromFile(
+          file.path,
+          filename: file.path.split("/").last,
+        ),
         "folder": folder,
       });
       final response = await dio.post(
@@ -90,7 +176,11 @@ class ApiService {
     }
   }
 
-  Future<void> downloadFile(String filename, String savePath, {Function(int received, int total)? onProgress}) async {
+  Future<void> downloadFile(
+    String filename,
+    String savePath, {
+    Function(int received, int total)? onProgress,
+  }) async {
     await init();
     try {
       final directory = Directory(savePath).parent;
@@ -151,7 +241,7 @@ class ApiService {
       return "Błąd: $e";
     }
   }
-  
+
   Future<String> deleteFile(String filename) async {
     await init();
     try {
@@ -159,7 +249,6 @@ class ApiService {
         "$baseUrl/delete/$filename",
         data: {"filename": filename},
       );
-      getFiles();
       return response.data["message"];
     } catch (e) {
       logger.e("Błąd podczas usuwania pliku: $e");
