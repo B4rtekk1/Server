@@ -33,7 +33,6 @@ EMAIL_RECEIVER = "bartoszkasyna@gmail.com"
 LOG_FILE = "ServerLogs/server_logs.txt"
 SENT_ALERTS_FILE = "sent_alerts.json"
 
-# Mapa rozszerzeń na typy MIME dla specyficznych typów plików
 MIME_TYPES = {
     '.ipynb': 'application/x-ipynb+json',
     '.jpg': 'image/jpeg',
@@ -53,7 +52,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=True)  # Nullable dla użytkowników Google
+    password_hash = db.Column(db.String(120), nullable=True)
     verification_code = db.Column(db.String(6), nullable=True)
     is_verified = db.Column(db.Boolean, default=False)
 
@@ -206,7 +205,7 @@ def verify_google_token(id_token):
         
         return {
             "email": token_data.get("email"),
-            "sub": token_data.get("sub")  # Google User ID
+            "sub": token_data.get("sub")
         }
     except Exception as e:
         log_to_memory_and_file("ERROR", f"Błąd podczas weryfikacji tokenu Google: {e}")
@@ -401,18 +400,25 @@ def download_file(filename):
     mime_type = MIME_TYPES.get(file_extension, mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
 
     safe_filename = os.path.basename(filename)
-    headers = {
-        'Content-Type': mime_type,
-        'Content-Disposition': f'attachment; filename="{safe_filename}"'
-    }
 
     log_to_memory_and_file("INFO", f"Downloaded file: {filename} with MIME type: {mime_type}")
 
-    return send_file(
-        file_path,
+    def generate():
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+
+    return Response(
+        generate(),
         mimetype=mime_type,
-        as_attachment=True,
-        download_name=safe_filename
+        headers={
+            'Content-Disposition': f'attachment; filename="{safe_filename}"',
+            'Content-Length': str(os.path.getsize(file_path)),
+            'Cache-Control': 'no-cache',
+        }
     )
 
 @app.route("/metadata/<path:filename>", methods=["GET"])
