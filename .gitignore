@@ -1,0 +1,9 @@
+uploads/
+ServerLogs/
+.env
+sent_alerts.json
+/android/key.properties
+.idea
+my-release-key.jks
+instance/
+.vscode
